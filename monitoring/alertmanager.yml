@@ -1,0 +1,23 @@
+global:
+  resolve_timeout: 1m
+
+route:
+  receiver: telegram_channel
+  group_by: ["alertname"]
+  group_wait: 0s
+  group_interval: 5s
+  repeat_interval: 5m
+
+receivers:
+  - name: telegram_channel
+    telegram_configs:
+      - bot_token: "8133242338:AAFMStN4OmT8-j3P_UxVepLvVf9x5pqToCk"
+        chat_id: 6163552209
+        send_resolved: true
+        message: |
+          {{ range .Alerts }}
+          🚨 ALERT: {{ .Labels.alertname }}
+          Severity: {{ .Labels.severity }}
+          Description: {{ .Annotations.description }}
+          Status: {{ .Status }}
+          {{ end }}

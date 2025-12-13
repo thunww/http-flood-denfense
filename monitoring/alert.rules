@@ -1,0 +1,45 @@
+groups:
+  - name: ddos_alert_group
+    rules:
+      # Alert chính: Phát hiện HTTP Flood dựa vào traffic
+      - alert: HTTPFloodDetected
+        expr: rate(nginx_http_requests_total[10s]) > 100
+        for: 5s
+        labels:
+          severity: "critical"
+        annotations:
+          description: "🚨 HTTP Flood: Traffic vượt 100 req/s"
+          summary: "Rate: {{ $value | humanize }} req/s"
+      
+      # Alert phụ: CPU cao (hỗ trợ xác nhận attack)
+      - alert: HighCPUServer
+        expr: (1 - avg by (instance)(rate(node_cpu_seconds_total{mode="idle"}[15s]))) > 0.50
+        for: 10s
+        labels:
+          severity: "warning"
+        annotations:
+          description: "⚠️ CPU server vượt 50%"
+          summary: "CPU: {{ $value | humanizePercentage }}"
+      
+      # Alert kết hợp: Xác nhận DDoS (traffic + CPU)
+      - alert: ConfirmedDDoS
+        expr: |
+          (rate(nginx_http_requests_total[10s]) > 100) 
+          and 
+          ((1 - avg by (instance)(rate(node_cpu_seconds_total{mode="idle"}[15s]))) > 0.50)
+        for: 10s
+        labels:
+          severity: "critical"
+        annotations:
+          description: "🔥 XÁC NHẬN DDOS: Traffic cao + CPU cao"
+      
+      # Alert nâng cao: Phát hiện traffic tăng đột biến
+      - alert: TrafficSpike
+        expr: |
+          rate(nginx_http_requests_total[1m]) > 
+          (avg_over_time(rate(nginx_http_requests_total[1m])[5m:1m]) * 2)
+        for: 30s
+        labels:
+          severity: "warning"
+        annotations:
+          description: "📈 Traffic tăng gấp đôi so với 5 phút trước"
