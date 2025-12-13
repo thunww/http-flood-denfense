@@ -12,16 +12,25 @@ services:
       - mon_net
 
   # ===========================
-  # BACKEND
+  # BACKEND (LB L7)
   # ===========================
-  backend:
+  backend1:
     build: ./backend
-    container_name: be
+    environment:
+      - INSTANCE_ID=backend-1
     networks:
       - mon_net
 
+  backend2:
+    build: ./backend
+    environment:
+      - INSTANCE_ID=backend-2
+    networks:
+      - mon_net
+
+
   # ===========================
-  # NGINX PROXY
+  # NGINX PROXY (L7 LB)
   # ===========================
   nginx:
     build: ./nginx
@@ -30,7 +39,8 @@ services:
       - "80:80"
     depends_on:
       - frontend
-      - backend
+      - backend1
+      - backend2
     networks:
       - mon_net
     volumes:
@@ -115,9 +125,6 @@ services:
     restart: unless-stopped
 
   # ===========================
-  # GOACCESS
-  # ===========================
-  # ===========================
   # GOACCESS (REALTIME)
   # ===========================
   goaccess:
@@ -141,7 +148,6 @@ services:
       -o /report/report.html
     restart: unless-stopped
 
-
   # ===========================
   # GOACCESS WEB
   # ===========================
@@ -157,7 +163,7 @@ services:
     restart: unless-stopped
 
   # ===========================
-  # GRAFANA (AUTO PROVISION)
+  # GRAFANA
   # ===========================
   grafana:
     image: grafana/grafana:latest
