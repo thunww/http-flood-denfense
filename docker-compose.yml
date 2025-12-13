@@ -12,7 +12,7 @@ services:
       - mon_net
 
   # ===========================
-  # BACKEND (LB L7)
+  # BACKEND (L7 LB TARGETS)
   # ===========================
   backend1:
     build: ./backend
@@ -28,9 +28,8 @@ services:
     networks:
       - mon_net
 
-
   # ===========================
-  # NGINX PROXY (L7 LB)
+  # NGINX PROXY (L7 DEFENSE + WS)
   # ===========================
   nginx:
     build: ./nginx
@@ -41,6 +40,7 @@ services:
       - frontend
       - backend1
       - backend2
+      - goaccess
     networks:
       - mon_net
     volumes:
@@ -90,9 +90,8 @@ services:
   nginx_exporter:
     image: nginx/nginx-prometheus-exporter:latest
     container_name: nginx_exporter
-    command: ["-nginx.scrape-uri", "http://nginx/nginx_status"]
-    ports:
-      - "9113:9113"
+    command:
+      - "--nginx.scrape-uri=http://nginx/nginx_status"
     networks:
       - mon_net
     depends_on:
@@ -125,7 +124,7 @@ services:
     restart: unless-stopped
 
   # ===========================
-  # GOACCESS (REALTIME)
+  # GOACCESS (REALTIME ENGINE)
   # ===========================
   goaccess:
     image: allinurl/goaccess:latest
@@ -134,8 +133,6 @@ services:
       - nginx
     networks:
       - mon_net
-    ports:
-      - "7890:7890"
     volumes:
       - ./nginx/logs:/logs:ro
       - ./goaccess:/report
@@ -144,12 +141,12 @@ services:
       /logs/access.log
       --config-file=/etc/goaccess/goaccess.conf
       --real-time-html
-      --ws-url=ws://127.0.0.1:7890
+      --ws-url=ws://54.66.52.193/goaccess/ws
       -o /report/report.html
     restart: unless-stopped
 
   # ===========================
-  # GOACCESS WEB
+  # GOACCESS WEB (STATIC HTML)
   # ===========================
   goaccess_web:
     image: nginx:alpine
