@@ -2,12 +2,18 @@ version: '3.8'
 
 services:
 
+  # ===========================
+  # FRONTEND
+  # ===========================
   frontend:
     build: ./frontend
     container_name: fe
     networks:
       - mon_net
 
+  # ===========================
+  # BACKEND (LB L7)
+  # ===========================
   backend1:
     build: ./backend
     container_name: backend1
@@ -24,6 +30,9 @@ services:
     networks:
       - mon_net
 
+  # ===========================
+  # NGINX PROXY (L7 LB)
+  # ===========================
   nginx:
     build: ./nginx
     container_name: nginx_proxy
@@ -33,32 +42,187 @@ services:
       - frontend
       - backend1
       - backend2
-    volumes:
-      - ./nginx/logs:/var/log/nginx
+      - goaccess
     networks:
       - mon_net
+    volumes:
+      - ./nginx/logs:/var/log/nginx
 
   # ===========================
-  # GOACCESS REALTIME (LOCAL)
+  # NODE EXPORTER
+  # ===========================
+  node_exporter:
+    image: prom/node-exporter:latest
+    container_name: node_exporter
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.sysfs=/host/sys'
+      - '--path.rootfs=/host'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/host:ro
+    networks:
+      - mon_net
+    pid: host
+    restart: unless-stopped
+
+  # ===========================
+  # CADVISOR
+  # ===========================
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:latest
+    container_name: cadvisor
+    ports:
+      - "8081:8080"
+    networks:
+      - mon_net
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    privileged: true
+    devices:
+      - /dev/kmsg
+    restart: unless-stopped
+
+  # ===========================
+  # NGINX EXPORTER
+  # ===========================
+  nginx_exporter:
+    image: nginx/nginx-prometheus-exporter:latest
+    container_name: nginx_exporter
+    command:
+      - "--nginx.scrape-uri=http://nginx_proxy/nginx_status"
+    ports:
+      - "9113:9113"
+    networks:
+      - mon_net
+    depends_on:
+      - nginx
+    restart: unless-stopped
+
+  # ===========================
+  # PROMETHEUS
+  # ===========================
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./monitoring/alert.rules:/etc/prometheus/alert.rules
+      # - prometheus-data:/prometheus  # Bỏ nếu chỉ test ngắn hạn
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+    networks:
+      - mon_net
+    restart: unless-stopped
+
+  # ===========================
+  # ALERT MANAGER
+  # ===========================
+  alertmanager:
+    image: prom/alertmanager:latest
+    container_name: alertmanager
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./monitoring/alertmanager.yml:/etc/alertmanager/alertmanager.yml
+      # - alertmanager-data:/alertmanager  # Bỏ nếu chỉ test ngắn hạn
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+    networks:
+      - mon_net
+    restart: unless-stopped
+
+  # ===========================
+  # GOACCESS (REALTIME)
   # ===========================
   goaccess:
     image: allinurl/goaccess:latest
     container_name: goaccess
-    ports:
-      - "7890:7890"
     networks:
       - mon_net
+    ports:
+      - "7890:7890"
     volumes:
-      - ./nginx/logs:/logs:ro
-      - ./goaccess/etc/goaccess.conf:/etc/goaccess/goaccess.conf:ro
+      - ./nginx/logs:/var/log/nginx:ro
+      - ./goaccess:/report
+      # - goaccess-data:/goaccess-data  # Bỏ nếu chỉ test ngắn hạn
     command: >
-      goaccess /logs/access.log
-        --config-file=/etc/goaccess/goaccess.conf
-        --real-time-html
-        --port=7890
-        --origin=http://localhost
+      /var/log/nginx/access.log
+      --log-format='%h [%d:%t %^] "%r" %s %b "%u"'
+      --date-format='%d/%b/%Y'
+      --time-format='%H:%M:%S'
+      --output=/report/report.html
+      --real-time-html
+      --port=7890
+      --ws-url=ws://localhost:7890
+      --max-items=50
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "sh", "-c", "nc -z localhost 7890 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # ===========================
+  # GOACCESS WEB SERVER
+  # ===========================
+  goaccess_web:
+    image: nginx:alpine
+    container_name: goaccess_web
+    ports:
+      - "7880:80"
+    volumes:
+      - ./goaccess:/usr/share/nginx/html:ro
+    networks:
+      - mon_net
+    restart: unless-stopped
+
+  # ===========================
+  # GRAFANA
+  # ===========================
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_SERVER_ROOT_URL=http://localhost:3000
+    networks:
+      - mon_net
+    depends_on:
+      - prometheus
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning
+      - ./grafana/provisioning/dashboards:/var/lib/grafana/dashboards
+      # - grafana-data:/var/lib/grafana  # Bỏ nếu chỉ test ngắn hạn
     restart: unless-stopped
 
 networks:
   mon_net:
     driver: bridge
+
+# ===========================
+# VOLUMES (Comment out cho demo/test ngắn hạn)
+# ===========================
+# volumes:
+#   prometheus-data:
+#     driver: local
+#   alertmanager-data:
+#     driver: local
+#   grafana-data:
+#     driver: local
+#   goaccess-data:
+#     driver: local
